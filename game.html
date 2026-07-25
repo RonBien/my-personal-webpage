@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>THE HELIX PROTOCOL — A Science Thriller</title>
+<style>
+  :root{
+    --bg:#0a0e14; --panel:#111826; --ink:#d7e2f0; --dim:#7c8aa0;
+    --accent:#33e0c8; --accent2:#f5b942; --danger:#ff5a6a; --ok:#5ad67d;
+    --line:#22304a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Georgia","Times New Roman",serif;background:
+     radial-gradient(1200px 600px at 70% -10%, #16233b 0%, var(--bg) 55%);
+     color:var(--ink);min-height:100vh;line-height:1.6}
+  .wrap{max-width:760px;margin:0 auto;padding:24px 18px 60px}
+  h1{font-size:1.9rem;letter-spacing:2px;margin:.2em 0;color:#fff}
+  .sub{color:var(--accent);letter-spacing:3px;text-transform:uppercase;font-size:.72rem;font-family:monospace}
+  .hud{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 6px;font-family:monospace;font-size:.78rem}
+  .chip{background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:4px 12px;color:var(--dim)}
+  .chip b{color:var(--ink)}
+  .bar{height:8px;background:#26314a;border-radius:6px;overflow:hidden;flex:1;min-width:120px;align-self:center}
+  .bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--danger),var(--accent2),var(--ok))}
+  .panel{background:linear-gradient(180deg,#131c2c,#0e1522);border:1px solid var(--line);
+     border-radius:14px;padding:22px;margin-top:16px;box-shadow:0 10px 40px rgba(0,0,0,.4)}
+  .scene-title{font-family:monospace;color:var(--accent2);letter-spacing:1px;font-size:.8rem;text-transform:uppercase;margin-bottom:6px}
+  .story{white-space:pre-wrap}
+  .prompt{margin-top:16px;padding-top:14px;border-top:1px dashed var(--line);color:#fff;font-weight:bold}
+  .opts{display:flex;flex-direction:column;gap:10px;margin-top:14px}
+  button.opt{font-family:inherit;text-align:left;background:#0e1728;color:var(--ink);
+     border:1px solid var(--line);border-radius:10px;padding:12px 14px;cursor:pointer;transition:.15s;font-size:1rem}
+  button.opt:hover{border-color:var(--accent);background:#12203a;transform:translateX(3px)}
+  .row{display:flex;gap:8px;margin-top:14px}
+  input[type=text]{flex:1;background:#0e1728;border:1px solid var(--line);border-radius:10px;
+     color:#fff;padding:12px;font-family:monospace;font-size:1rem}
+  .go{background:var(--accent);color:#04120f;border:none;border-radius:10px;padding:0 18px;font-weight:bold;cursor:pointer}
+  .feedback{margin-top:14px;padding:12px 14px;border-radius:10px;font-size:.95rem;display:none}
+  .feedback.show{display:block}
+  .feedback.good{background:rgba(90,214,125,.12);border:1px solid var(--ok);color:#c8f6d6}
+  .feedback.bad{background:rgba(255,90,106,.1);border:1px solid var(--danger);color:#ffd0d5}
+  .sci{color:var(--accent);font-family:monospace;font-size:.85rem}
+  .hint{color:var(--dim);font-size:.85rem;margin-top:8px;cursor:pointer;text-decoration:underline dotted}
+  .foot{margin-top:22px;text-align:center;color:var(--dim);font-size:.78rem;font-family:monospace}
+  a{color:var(--accent)}
+  .end{font-size:1.3rem;text-align:center;padding:10px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="sub">A hard-science interactive thriller</div>
+  <h1>THE&nbsp;HELIX&nbsp;PROTOCOL</h1>
+  <div class="hud">
+    <span class="chip">◇ Case <b id="hud-scene">0/8</b></span>
+    <span class="chip">✦ Insight <b id="hud-score">0</b></span>
+    <span class="chip">⏱ Integrity</span>
+    <span class="bar"><i id="hp" style="width:100%"></i></span>
+  </div>
+
+  <div class="panel">
+    <div class="scene-title" id="title">Dossier</div>
+    <div class="story" id="story"></div>
+    <div class="prompt" id="prompt" style="display:none"></div>
+    <div class="opts" id="opts"></div>
+    <div class="row" id="inputRow" style="display:none">
+      <input type="text" id="answer" placeholder="Type your answer…" autocomplete="off">
+      <button class="go" id="submit">Solve</button>
+    </div>
+    <div class="hint" id="hint" style="display:none"></div>
+    <div class="feedback" id="fb"></div>
+  </div>
+
+  <div class="foot">Runs entirely in your browser — no server, no tokens. <a href="index.html">← back to site</a></div>
+</div>
+
+<script>
+/* ============================================================
+   THE HELIX PROTOCOL
+   You are Dr. — a startup founder-philanthropist, MD/neurosurgeon,
+   computational cell & molecular biologist and bioengineer.
+   Solve each situational problem using hard-science reasoning.
+   Pure client-side. No API calls. Zero runtime tokens.
+   ============================================================ */
+
+const state = { i:0, score:0, hp:100, hintsUsed:0 };
+
+/* Helpers for answer checking */
+const num = s => parseFloat(String(s).replace(/[^0-9.\-eE]/g,''));
+const near = (v, target, tol) => Math.abs(v-target) <= tol;
+const has = (s, ...keys) => { s=String(s).toLowerCase(); return keys.some(k=>s.includes(k)); };
+
+/* Each scene: title, story, prompt, then either
+   choices:[{t,correct,why}]  OR  check(answer)->{ok,why}  with hint */
+const scenes = [
+{
+ title:"Dossier — 02:14, Geneva",
+ story:`Your secure line lights up. A biotech consortium, HELIX, has weaponized a synthetic prion and hidden a killswitch across five locked "trials." A colleague is already dead. You have your mind and eight hours.
+
+They know your record: neurosurgeon, molecular biologist, bioengineer, founder of a philanthropic gene-therapy lab. So they built the traps around exactly what you know.
+
+A voice: "Doctor. Reason well, and thousands live. Fail, and Integrity drains. Reach zero, and the release is automatic."`,
+ prompt:"Do you accept?",
+ choices:[
+   {t:"Accept. Open Trial I.", correct:true, why:"The clock starts. Stay analytical — every trap is a science problem in disguise."},
+   {t:"Refuse and trace the call first.", correct:false, why:"You try — the signal is onion-routed and bounces. Time bleeds while you learn nothing. Accept and reason forward."}
+ ]
+},
+{
+ title:"Trial I — The Poisoned Vial (Chemistry)",
+ story:`A cryovial of the prion sits in a sealed chamber flooded with an unknown gas. A readout: pH of the condensate is 3.0. A second identical chamber reads pH 6.0. HELIX claims the neutralizing enzyme only survives if you correctly state how much MORE acidic chamber A is than chamber B.`,
+ prompt:"How many times more acidic (H⁺ concentration) is pH 3.0 vs pH 6.0? (a number)",
+ check:a=>{ const v=num(a); return {ok:near(v,1000,0.5)||has(a,"thousand","1000","10^3","1,000"),
+   why:"pH is −log₁₀[H⁺]. Each unit = 10×. Δ3 units → 10³ = 1000× more acidic. Enzyme stabilizes."};},
+ hint:"Each pH unit is a factor of ten. Difference is 3 units."
+},
+{
+ title:"Trial II — The Failing Heart (Medicine)",
+ story:`A hostage is wired to a monitor rigged to the door lock. ECG: wide, bizarre QRS, a sine-wave pattern, no clear P waves. Labs flash on screen: K⁺ 7.9 mmol/L. Four syringes hang before you, unlabeled by function.`,
+ prompt:"Severe hyperkalemia with sine-wave ECG — what do you give FIRST to protect the myocardium?",
+ choices:[
+   {t:"IV calcium gluconate", correct:true, why:"Calcium stabilizes the cardiac membrane within minutes — it doesn't lower K⁺, but it buys life while insulin/glucose and shift agents work. Correct first move."},
+   {t:"Insulin + glucose", correct:false, why:"That shifts K⁺ intracellularly, but it's slower to protect the myocardium. Calcium first stabilizes the membrane; then shift. Integrity drops."},
+   {t:"Oral potassium binder", correct:false, why:"Far too slow for a sine-wave arrest pattern. The membrane needs stabilizing NOW. Integrity drops."},
+   {t:"Defibrillate immediately", correct:false, why:"There's a perfusing rhythm — shocking it is wrong and dangerous. Stabilize the membrane with calcium. Integrity drops."}
+ ]
+},
+{
+ title:"Trial III — The Locked Isotope (Physics)",
+ story:`The next door is sealed by a decaying tracer. It began at 80 GBq. The lock opens only when activity falls to 10 GBq. A plaque reads: "Half-life = 6 hours." A digital timer asks how long you must wait.`,
+ prompt:"How many hours until 80 GBq decays to 10 GBq? (a number of hours)",
+ check:a=>{ const v=num(a); return {ok:near(v,18,0.6),
+   why:"80→40→20→10 is three halvings. 3 × 6 h = 18 hours. (You won't wait it out — but stating it right releases the override.)"};},
+ hint:"How many halvings take 80 down to 10? Multiply by the half-life."
+},
+{
+ title:"Trial IV — The Genetic Cipher (Molecular Biology)",
+ story:`A screen shows the coding (sense) DNA strand of the prion's kill-switch promoter:
+
+    5'- T A C -3'   (first codon of the template read)
+
+HELIX: "Give the amino acid this start signal encodes in the mRNA, and the switch arms." You recall the template strand is read 3'→5' and mRNA is synthesized 5'→3'.`,
+ prompt:"The template triplet 3'-TAC-5' transcribes to which mRNA codon — and which amino acid does it specify?",
+ check:a=>({ ok: has(a,"aug","methionine","met","start"),
+   why:"Template 3'-TAC-5' → mRNA 5'-AUG-3'. AUG = Methionine, the START codon. The switch arms."}),
+ hint:"Complement & antiparallel: T→A, A→U, C→G. What codon always starts translation?"
+},
+{
+ title:"Trial V — The Dilution Trap (Chemistry / Math)",
+ story:`To deactivate a batch you must prepare exactly 500 mL of a 0.2 M neutralizer from a 5 M stock. Overshoot the stock volume and the reaction runs away.`,
+ prompt:"How many milliliters of 5 M stock do you draw up? (a number in mL)",
+ check:a=>{ const v=num(a); return {ok:near(v,20,0.4),
+   why:"C₁V₁ = C₂V₂ → (5)(V₁) = (0.2)(500) = 100 → V₁ = 20 mL stock, topped to 500 mL. Precise."};},
+ hint:"C₁V₁ = C₂V₂. Solve for V₁ then convert."
+},
+{
+ title:"Trial VI — The Dose Calculus (Medicine / Pharmacology)",
+ story:`The antidote must run as a continuous infusion. Order: 4 mcg/kg/min for an 80 kg patient. The bag is mixed at 3200 mcg/mL. The pump takes mL/hour.`,
+ prompt:"What infusion rate in mL/hour do you set? (a number)",
+ check:a=>{ const v=num(a); return {ok:near(v,6,0.3),
+   why:"4 mcg/kg/min × 80 kg = 320 mcg/min = 19 200 mcg/hr. ÷ 3200 mcg/mL = 6 mL/hr. Antidote flows."};},
+ hint:"Dose × weight → per minute → per hour, then divide by concentration."
+},
+{
+ title:"Trial VII — The Spreading Contagion (Comp Biology / Math)",
+ story:`HELIX seeds a bacterial vector that divides every 20 minutes. Containment fails when the population reaches 4096× the seed. Their console demands the exact time to breach — a bluff to make you flee early.`,
+ prompt:"With 20-minute doubling, how many HOURS to reach 4096× the initial count? (a number of hours)",
+ check:a=>{ const v=num(a); return {ok:near(v,4,0.25),
+   why:"4096 = 2¹². Twelve doublings × 20 min = 240 min = 4 hours. You have exactly enough time to plant the killswitch."};},
+ hint:"4096 is a power of two. 2^? Count the doublings × 20 min."
+},
+{
+ title:"Trial VIII — The Final Switch (Neuroscience / Synthesis)",
+ story:`The master killswitch is a protein you engineered years ago, before HELIX stole it: a light-gated ion channel spliced into the vector, silencing it only when the right wavelength floods the chamber. Three emitters hang overhead — you must trigger the channel that opens to blue ~470 nm and hyperpolarizes… no, that silences neurons. Here you need to ACTIVATE the killswitch cascade: depolarize the engineered cells.`,
+ prompt:"Which optogenetic tool do you fire to DEPOLARIZE (activate) the engineered cells with ~470 nm blue light?",
+ choices:[
+   {t:"Channelrhodopsin-2 (ChR2)", correct:true, why:"ChR2 is a blue-light-gated cation channel — it depolarizes/activates the cell. The killswitch cascade fires. Release aborted."},
+   {t:"Halorhodopsin (NpHR)", correct:false, why:"NpHR is a yellow-light chloride pump — it hyperpolarizes/silences. Wrong direction. Integrity drops."},
+   {t:"Archaerhodopsin (Arch)", correct:false, why:"Arch is a proton pump that silences cells with green light. You need to activate, not silence. Integrity drops."}
+ ]
+}
+];
+
+/* ---- rendering ---- */
+const $ = id => document.getElementById(id);
+function render(){
+  const s = scenes[state.i];
+  $("hud-scene").textContent = state.i + "/" + (scenes.length-1);
+  $("hud-score").textContent = state.score;
+  $("hp").style.width = Math.max(0,state.hp) + "%";
+  $("title").textContent = s.title;
+  $("story").textContent = s.story;
+  $("prompt").style.display = "block";
+  $("prompt").textContent = s.prompt;
+  $("fb").className = "feedback";
+  const opts = $("opts"); opts.innerHTML="";
+  const row = $("inputRow"); const hint=$("hint");
+  hint.style.display = s.hint ? "block":"none";
+  if(s.hint){ hint.textContent = "Need a nudge? (costs a little Integrity)";
+    hint.onclick=()=>{ if(hint.dataset.done)return; hint.dataset.done=1;
+      hint.textContent="Hint: "+s.hint; state.hp=Math.max(0,state.hp-4); state.hintsUsed++; $("hp").style.width=state.hp+"%"; }; }
+  hint.dataset.done="";
+  if(s.choices){
+    row.style.display="none";
+    s.choices.forEach(c=>{ const b=document.createElement("button"); b.className="opt"; b.textContent=c.t;
+      b.onclick=()=>resolve(c.correct,c.why); opts.appendChild(b); });
+  } else {
+    row.style.display="flex";
+    $("answer").value=""; $("answer").focus();
+    $("submit").onclick = submit;
+    $("answer").onkeydown = e=>{ if(e.key==="Enter") submit(); };
+  }
+}
+function submit(){
+  const s=scenes[state.i]; const r=s.check($("answer").value);
+  resolve(r.ok, r.why);
+}
+function resolve(ok, why){
+  const fb=$("fb");
+  if(ok){ state.score += 10; fb.className="feedback show good"; fb.innerHTML="✔ "+why; }
+  else  { state.hp=Math.max(0,state.hp-18); fb.className="feedback show bad"; fb.innerHTML="✘ "+why; }
+  $("hp").style.width=state.hp+"%"; $("hud-score").textContent=state.score;
+  // disable current controls, then advance
+  document.querySelectorAll(".opt").forEach(b=>b.disabled=true);
+  $("submit").disabled=true;
+  setTimeout(()=>{
+    if(state.hp<=0){ return gameOver(); }
+    if(ok){ state.i++; }
+    // wrong answers on input puzzles let you retry; wrong choices advance with penalty
+    if(state.i>=scenes.length){ return win(); }
+    $("submit").disabled=false;
+    render();
+  }, ok?1500:2600);
+}
+function gameOver(){
+  document.querySelector(".panel").innerHTML =
+    `<div class="scene-title">Integrity depleted</div>
+     <div class="end">☠ The automatic release triggered.<br><br>
+     But every good scientist reruns the experiment.</div>
+     <div class="opts"><button class="opt" onclick="restart()">↻ Reset the timeline</button></div>`;
+}
+function win(){
+  const grade = state.hintsUsed===0 && state.hp>82 ? "FLAWLESS — a true polymath run."
+    : state.hp>50 ? "The world is safe. Steady hands, sharp mind."
+    : "You made it — bruised, but the release is aborted.";
+  document.querySelector(".panel").innerHTML =
+    `<div class="scene-title">Case closed — 09:57, Geneva</div>
+     <div class="end">✦ THE HELIX PROTOCOL — DISARMED ✦</div>
+     <div class="story">Blue light floods the chamber. ChR2 fires, the engineered cells depolarize, the killswitch cascade sweeps the vector inert. The prion batch denatures. Somewhere, thousands of people wake to an ordinary morning and never know your name.
+
+Final Insight: <b>${state.score}</b> · Integrity remaining: <b>${Math.round(state.hp)}%</b> · Hints used: <b>${state.hintsUsed}</b>
+${grade}</div>
+     <div class="opts"><button class="opt" onclick="restart()">↻ Play again</button>
+     <button class="opt" onclick="location.href='index.html'">← Return to site</button></div>`;
+}
+function restart(){ state.i=0; state.score=0; state.hp=100; state.hintsUsed=0;
+  document.querySelector(".panel").innerHTML = document._panel; render(); }
+document._panel = document.querySelector(".panel").innerHTML;
+render();
+</script>
+</body>
+</html>
