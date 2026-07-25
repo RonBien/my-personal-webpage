@@ -47,6 +47,16 @@
   .foot{margin-top:22px;text-align:center;color:var(--dim);font-size:.78rem;font-family:monospace}
   a{color:var(--accent)}
   .end{font-size:1.3rem;text-align:center;padding:10px}
+  .board{margin-top:16px}
+  .board h3{font-family:monospace;color:var(--accent2);letter-spacing:1px;font-size:.72rem;
+     text-transform:uppercase;margin:0 0 8px;display:flex;justify-content:space-between;align-items:center}
+  .board .clear{cursor:pointer;color:var(--dim);text-decoration:underline dotted;font-size:.85em}
+  table.score{width:100%;border-collapse:collapse;font-family:monospace;font-size:.82rem}
+  table.score th,table.score td{padding:6px 8px;text-align:left;border-bottom:1px solid var(--line)}
+  table.score th{color:var(--dim);font-weight:normal}
+  table.score tr.you td{color:var(--accent);font-weight:bold}
+  table.score td.rank{color:var(--accent2)}
+  .board .empty{color:var(--dim);font-family:monospace;font-size:.82rem;padding:6px 0}
 </style>
 </head>
 <body>
@@ -73,6 +83,8 @@
     <div class="hint" id="hint" style="display:none"></div>
     <div class="feedback" id="fb"></div>
   </div>
+
+  <div class="board" id="board"></div>
 
   <div class="foot">Runs entirely in your browser — no server, no tokens. Fresh puzzles every run. <a href="index.html">← back to site</a></div>
 </div>
@@ -291,6 +303,45 @@ function buildRun(){
   state.scenes = [intro, ...pools.map(pick)];
 }
 
+/* ---------- best-run scoreboard (localStorage) ---------- */
+const BOARD_KEY = "helix_scores_v1";
+let lastRunId = null;
+function loadBoard(){
+  try{ return JSON.parse(localStorage.getItem(BOARD_KEY)) || []; }catch(e){ return []; }
+}
+function rankRuns(runs){
+  // higher score first; tie-break by time left, then integrity, then fewer hints
+  return runs.slice().sort((a,b)=>
+    b.score-a.score || b.seconds-a.seconds || b.hp-a.hp || a.hints-b.hints);
+}
+function saveRun(run){
+  run.id = Date.now()+"-"+Math.random().toString(36).slice(2,6);
+  lastRunId = run.id;
+  const runs = rankRuns([...loadBoard(), run]).slice(0,5); // keep top 5
+  try{ localStorage.setItem(BOARD_KEY, JSON.stringify(runs)); }catch(e){}
+}
+function clearBoard(){
+  try{ localStorage.removeItem(BOARD_KEY); }catch(e){}
+  lastRunId=null; renderBoard();
+}
+function mmss(s){ return Math.floor(s/60)+":"+String(s%60).padStart(2,"0"); }
+function renderBoard(){
+  const el=$("board"); const runs=rankRuns(loadBoard());
+  let rows;
+  if(!runs.length){
+    rows=`<div class="empty">No missions logged yet — disarm the Protocol to set a record.</div>`;
+  } else {
+    rows=`<table class="score"><tr><th>#</th><th>Insight</th><th>Time left</th><th>Integrity</th><th>Hints</th><th>Date</th></tr>`
+      + runs.map((r,i)=>`<tr class="${r.id===lastRunId?'you':''}">`
+        + `<td class="rank">${i+1}</td><td>${r.score}</td><td>${mmss(r.seconds)}</td>`
+        + `<td>${Math.round(r.hp)}%</td><td>${r.hints}</td><td>${r.date}</td></tr>`).join("")
+      + `</table>`;
+  }
+  el.innerHTML=`<h3><span>★ Best Runs</span>`
+    + (runs.length?`<span class="clear" onclick="clearBoard()">clear</span>`:``)
+    + `</h3>`+rows;
+}
+
 function startTimer(){
   clearInterval(state.timer);
   state.timer = setInterval(()=>{
@@ -357,12 +408,16 @@ function end(won, cause){
   clearInterval(state.timer);
   const p=$("panel");
   if(won){
+    saveRun({ score:state.score, hp:state.hp, seconds:state.seconds,
+              hints:state.hintsUsed, date:new Date().toLocaleDateString() });
+    renderBoard();
+    const isBest = rankRuns(loadBoard())[0].id === lastRunId;
     const grade = state.hintsUsed===0 && state.hp>82 && state.seconds>180
       ? "FLAWLESS — a true polymath run." :
       state.hp>50 ? "The world is safe. Steady hands, sharp mind."
       : "You made it — bruised, but the release is aborted.";
     p.innerHTML=`<div class="scene-title">Case closed — Geneva</div>
-      <div class="end">✦ THE HELIX PROTOCOL — DISARMED ✦</div>
+      <div class="end">✦ THE HELIX PROTOCOL — DISARMED ✦${isBest?`<br><span style="color:var(--accent2);font-size:.9rem;font-family:monospace">★ NEW BEST RUN ★</span>`:``}</div>
       <div class="story">The killswitch cascade sweeps the vector inert; the prion batch denatures. Somewhere, thousands wake to an ordinary morning and never know your name.
 
 Insight: <b>${state.score}</b> · Integrity: <b>${Math.round(state.hp)}%</b> · Time left: <b>${Math.floor(state.seconds/60)}:${String(state.seconds%60).padStart(2,"0")}</b> · Hints: <b>${state.hintsUsed}</b>
@@ -387,7 +442,7 @@ function restart(){
 }
 
 const PANEL_HTML = $("panel").innerHTML;
-buildRun(); paintClock(); startTimer(); render();
+buildRun(); paintClock(); startTimer(); render(); renderBoard();
 </script>
 </body>
 </html>
