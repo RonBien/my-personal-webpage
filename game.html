@@ -20,6 +20,9 @@
   .hud{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 6px;font-family:monospace;font-size:.78rem}
   .chip{background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:4px 12px;color:var(--dim)}
   .chip b{color:var(--ink)}
+  .chip.time b{color:var(--accent2)}
+  .chip.time.warn{border-color:var(--danger);animation:pulse 1s infinite}
+  @keyframes pulse{50%{background:rgba(255,90,106,.18)}}
   .bar{height:8px;background:#26314a;border-radius:6px;overflow:hidden;flex:1;min-width:120px;align-self:center}
   .bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--danger),var(--accent2),var(--ok))}
   .panel{background:linear-gradient(180deg,#131c2c,#0e1522);border:1px solid var(--line);
@@ -51,13 +54,14 @@
   <div class="sub">A hard-science interactive thriller</div>
   <h1>THE&nbsp;HELIX&nbsp;PROTOCOL</h1>
   <div class="hud">
-    <span class="chip">◇ Case <b id="hud-scene">0/8</b></span>
+    <span class="chip">◇ Trial <b id="hud-scene">0/8</b></span>
     <span class="chip">✦ Insight <b id="hud-score">0</b></span>
-    <span class="chip">⏱ Integrity</span>
+    <span class="chip time" id="timeChip">⏱ <b id="clock">08:00</b></span>
+    <span class="chip">Integrity</span>
     <span class="bar"><i id="hp" style="width:100%"></i></span>
   </div>
 
-  <div class="panel">
+  <div class="panel" id="panel">
     <div class="scene-title" id="title">Dossier</div>
     <div class="story" id="story"></div>
     <div class="prompt" id="prompt" style="display:none"></div>
@@ -70,121 +74,240 @@
     <div class="feedback" id="fb"></div>
   </div>
 
-  <div class="foot">Runs entirely in your browser — no server, no tokens. <a href="index.html">← back to site</a></div>
+  <div class="foot">Runs entirely in your browser — no server, no tokens. Fresh puzzles every run. <a href="index.html">← back to site</a></div>
 </div>
 
 <script>
 /* ============================================================
-   THE HELIX PROTOCOL
-   You are Dr. — a startup founder-philanthropist, MD/neurosurgeon,
+   THE HELIX PROTOCOL  —  replayable edition
+   You: startup founder-philanthropist, MD/neurosurgeon,
    computational cell & molecular biologist and bioengineer.
-   Solve each situational problem using hard-science reasoning.
+   * Countdown mission timer (drains; wrong answers cost time).
+   * Each trial slot draws a RANDOM variant from a pool, so
+     every playthrough serves fresh science puzzles.
    Pure client-side. No API calls. Zero runtime tokens.
    ============================================================ */
 
-const state = { i:0, score:0, hp:100, hintsUsed:0 };
+/* ---------- answer helpers ---------- */
+const num  = s => parseFloat(String(s).replace(/[^0-9.\-eE]/g,''));
+const near = (v,t,tol) => Math.abs(v-t) <= tol;
+const has  = (s,...k) => { s=String(s).toLowerCase(); return k.some(x=>s.includes(x)); };
+const pick = a => a[Math.floor(Math.random()*a.length)];
+const numCheck = (target,tol,why) => a => ({ok:near(num(a),target,tol), why});
 
-/* Helpers for answer checking */
-const num = s => parseFloat(String(s).replace(/[^0-9.\-eE]/g,''));
-const near = (v, target, tol) => Math.abs(v-target) <= tol;
-const has = (s, ...keys) => { s=String(s).toLowerCase(); return keys.some(k=>s.includes(k)); };
-
-/* Each scene: title, story, prompt, then either
-   choices:[{t,correct,why}]  OR  check(answer)->{ok,why}  with hint */
-const scenes = [
-{
+/* ---------- fixed framing scene ---------- */
+const intro = {
  title:"Dossier — 02:14, Geneva",
- story:`Your secure line lights up. A biotech consortium, HELIX, has weaponized a synthetic prion and hidden a killswitch across five locked "trials." A colleague is already dead. You have your mind and eight hours.
+ story:`Your secure line lights up. A biotech consortium, HELIX, has weaponized a synthetic prion and hidden a killswitch across a chain of locked "trials." A colleague is already dead. The mission clock is running.
 
 They know your record: neurosurgeon, molecular biologist, bioengineer, founder of a philanthropic gene-therapy lab. So they built the traps around exactly what you know.
 
-A voice: "Doctor. Reason well, and thousands live. Fail, and Integrity drains. Reach zero, and the release is automatic."`,
+A voice: "Doctor. Every wrong step burns time and Integrity. Let either hit zero and the release is automatic. Reason well."`,
  prompt:"Do you accept?",
  choices:[
-   {t:"Accept. Open Trial I.", correct:true, why:"The clock starts. Stay analytical — every trap is a science problem in disguise."},
-   {t:"Refuse and trace the call first.", correct:false, why:"You try — the signal is onion-routed and bounces. Time bleeds while you learn nothing. Accept and reason forward."}
+   {t:"Accept. Open Trial I.", correct:true, why:"The clock is live. Every trap is a science problem in disguise."},
+   {t:"Trace the call first.", correct:false, why:"Onion-routed — it bounces the globe. Time bleeds, you learn nothing. Reason forward instead."}
  ]
-},
-{
- title:"Trial I — The Poisoned Vial (Chemistry)",
- story:`A cryovial of the prion sits in a sealed chamber flooded with an unknown gas. A readout: pH of the condensate is 3.0. A second identical chamber reads pH 6.0. HELIX claims the neutralizing enzyme only survives if you correctly state how much MORE acidic chamber A is than chamber B.`,
- prompt:"How many times more acidic (H⁺ concentration) is pH 3.0 vs pH 6.0? (a number)",
- check:a=>{ const v=num(a); return {ok:near(v,1000,0.5)||has(a,"thousand","1000","10^3","1,000"),
-   why:"pH is −log₁₀[H⁺]. Each unit = 10×. Δ3 units → 10³ = 1000× more acidic. Enzyme stabilizes."};},
- hint:"Each pH unit is a factor of ten. Difference is 3 units."
-},
-{
- title:"Trial II — The Failing Heart (Medicine)",
- story:`A hostage is wired to a monitor rigged to the door lock. ECG: wide, bizarre QRS, a sine-wave pattern, no clear P waves. Labs flash on screen: K⁺ 7.9 mmol/L. Four syringes hang before you, unlabeled by function.`,
- prompt:"Severe hyperkalemia with sine-wave ECG — what do you give FIRST to protect the myocardium?",
- choices:[
-   {t:"IV calcium gluconate", correct:true, why:"Calcium stabilizes the cardiac membrane within minutes — it doesn't lower K⁺, but it buys life while insulin/glucose and shift agents work. Correct first move."},
-   {t:"Insulin + glucose", correct:false, why:"That shifts K⁺ intracellularly, but it's slower to protect the myocardium. Calcium first stabilizes the membrane; then shift. Integrity drops."},
-   {t:"Oral potassium binder", correct:false, why:"Far too slow for a sine-wave arrest pattern. The membrane needs stabilizing NOW. Integrity drops."},
-   {t:"Defibrillate immediately", correct:false, why:"There's a perfusing rhythm — shocking it is wrong and dangerous. Stabilize the membrane with calcium. Integrity drops."}
- ]
-},
-{
- title:"Trial III — The Locked Isotope (Physics)",
- story:`The next door is sealed by a decaying tracer. It began at 80 GBq. The lock opens only when activity falls to 10 GBq. A plaque reads: "Half-life = 6 hours." A digital timer asks how long you must wait.`,
- prompt:"How many hours until 80 GBq decays to 10 GBq? (a number of hours)",
- check:a=>{ const v=num(a); return {ok:near(v,18,0.6),
-   why:"80→40→20→10 is three halvings. 3 × 6 h = 18 hours. (You won't wait it out — but stating it right releases the override.)"};},
- hint:"How many halvings take 80 down to 10? Multiply by the half-life."
-},
-{
- title:"Trial IV — The Genetic Cipher (Molecular Biology)",
- story:`A screen shows the coding (sense) DNA strand of the prion's kill-switch promoter:
+};
 
-    5'- T A C -3'   (first codon of the template read)
+/* ---------- puzzle POOLS: one slot per trial, many variants each ---------- */
+/* On each run, one variant is drawn from every pool. */
+const pools = [
 
-HELIX: "Give the amino acid this start signal encodes in the mRNA, and the switch arms." You recall the template strand is read 3'→5' and mRNA is synthesized 5'→3'.`,
- prompt:"The template triplet 3'-TAC-5' transcribes to which mRNA codon — and which amino acid does it specify?",
- check:a=>({ ok: has(a,"aug","methionine","met","start"),
-   why:"Template 3'-TAC-5' → mRNA 5'-AUG-3'. AUG = Methionine, the START codon. The switch arms."}),
- hint:"Complement & antiparallel: T→A, A→U, C→G. What codon always starts translation?"
-},
-{
- title:"Trial V — The Dilution Trap (Chemistry / Math)",
- story:`To deactivate a batch you must prepare exactly 500 mL of a 0.2 M neutralizer from a 5 M stock. Overshoot the stock volume and the reaction runs away.`,
- prompt:"How many milliliters of 5 M stock do you draw up? (a number in mL)",
- check:a=>{ const v=num(a); return {ok:near(v,20,0.4),
-   why:"C₁V₁ = C₂V₂ → (5)(V₁) = (0.2)(500) = 100 → V₁ = 20 mL stock, topped to 500 mL. Precise."};},
- hint:"C₁V₁ = C₂V₂. Solve for V₁ then convert."
-},
-{
- title:"Trial VI — The Dose Calculus (Medicine / Pharmacology)",
- story:`The antidote must run as a continuous infusion. Order: 4 mcg/kg/min for an 80 kg patient. The bag is mixed at 3200 mcg/mL. The pump takes mL/hour.`,
- prompt:"What infusion rate in mL/hour do you set? (a number)",
- check:a=>{ const v=num(a); return {ok:near(v,6,0.3),
-   why:"4 mcg/kg/min × 80 kg = 320 mcg/min = 19 200 mcg/hr. ÷ 3200 mcg/mL = 6 mL/hr. Antidote flows."};},
- hint:"Dose × weight → per minute → per hour, then divide by concentration."
-},
-{
- title:"Trial VII — The Spreading Contagion (Comp Biology / Math)",
- story:`HELIX seeds a bacterial vector that divides every 20 minutes. Containment fails when the population reaches 4096× the seed. Their console demands the exact time to breach — a bluff to make you flee early.`,
- prompt:"With 20-minute doubling, how many HOURS to reach 4096× the initial count? (a number of hours)",
- check:a=>{ const v=num(a); return {ok:near(v,4,0.25),
-   why:"4096 = 2¹². Twelve doublings × 20 min = 240 min = 4 hours. You have exactly enough time to plant the killswitch."};},
- hint:"4096 is a power of two. 2^? Count the doublings × 20 min."
-},
-{
- title:"Trial VIII — The Final Switch (Neuroscience / Synthesis)",
- story:`The master killswitch is a protein you engineered years ago, before HELIX stole it: a light-gated ion channel spliced into the vector, silencing it only when the right wavelength floods the chamber. Three emitters hang overhead — you must trigger the channel that opens to blue ~470 nm and hyperpolarizes… no, that silences neurons. Here you need to ACTIVATE the killswitch cascade: depolarize the engineered cells.`,
- prompt:"Which optogenetic tool do you fire to DEPOLARIZE (activate) the engineered cells with ~470 nm blue light?",
- choices:[
-   {t:"Channelrhodopsin-2 (ChR2)", correct:true, why:"ChR2 is a blue-light-gated cation channel — it depolarizes/activates the cell. The killswitch cascade fires. Release aborted."},
-   {t:"Halorhodopsin (NpHR)", correct:false, why:"NpHR is a yellow-light chloride pump — it hyperpolarizes/silences. Wrong direction. Integrity drops."},
-   {t:"Archaerhodopsin (Arch)", correct:false, why:"Arch is a proton pump that silences cells with green light. You need to activate, not silence. Integrity drops."}
- ]
-}
+/* Trial I — CHEMISTRY */
+[
+ { title:"Trial I — The Poisoned Vial (Chemistry)",
+   story:`A cryovial sits in a sealed chamber. Condensate in chamber A reads pH 3.0; identical chamber B reads pH 6.0. The neutralizing enzyme releases only if you state how much MORE acidic A is than B.`,
+   prompt:"How many times greater is [H⁺] at pH 3.0 vs pH 6.0? (a number)",
+   check:numCheck(1000,0.5,"pH = −log₁₀[H⁺]; each unit = 10×. Δ3 → 10³ = 1000×. Enzyme stabilizes."),
+   hint:"Each pH unit is a factor of ten; the gap is 3 units." },
+ { title:"Trial I — The Buffer Lock (Chemistry)",
+   story:`A door buffer holds equal concentrations of a weak acid and its conjugate base (pKa 4.8). A keypad wants the resulting pH.`,
+   prompt:"By Henderson–Hasselbalch, what is the pH when [A⁻] = [HA]? (a number)",
+   check:numCheck(4.8,0.15,"pH = pKa + log([A⁻]/[HA]) = pKa + log(1) = pKa = 4.8."),
+   hint:"log(1) = 0, so pH collapses to pKa." },
+ { title:"Trial I — The Titration Seal (Chemistry)",
+   story:`25.0 mL of HCl is neutralized exactly by 50.0 mL of 0.10 M NaOH. The lock needs the acid's molarity.`,
+   prompt:"What is the concentration of the HCl in mol/L? (a number)",
+   check:numCheck(0.2,0.01,"Moles base = 0.050 L × 0.10 = 0.005 mol = moles acid. ÷0.025 L = 0.2 M."),
+   hint:"Moles = V×C; at equivalence moles acid = moles base; divide by acid volume." }
+],
+
+/* Trial II — MEDICINE */
+[
+ { title:"Trial II — The Failing Heart (Medicine)",
+   story:`A hostage is wired to a monitor rigged to the lock. ECG: wide sine-wave QRS, no P waves. Labs: K⁺ 7.9 mmol/L. Four unlabeled syringes hang before you.`,
+   prompt:"Severe hyperkalemia with a sine-wave ECG — what protects the myocardium FIRST?",
+   choices:[
+     {t:"IV calcium gluconate", correct:true, why:"Calcium stabilizes the cardiac membrane in minutes — buys life while shift agents work. Correct first move."},
+     {t:"Insulin + glucose", correct:false, why:"Shifts K⁺ intracellularly but slower to protect myocardium. Membrane stabilization comes first."},
+     {t:"Oral potassium binder", correct:false, why:"Far too slow for a sine-wave pattern. Stabilize the membrane now."},
+     {t:"Immediate defibrillation", correct:false, why:"There's a perfusing rhythm — shocking it is wrong. Give calcium."}
+   ]},
+ { title:"Trial II — The Overdose (Medicine)",
+   story:`A guard collapses: pinpoint pupils, respiratory rate 4, unresponsive. An open vial of an opioid rolls on the floor. Four antidotes are within reach.`,
+   prompt:"Pinpoint pupils + respiratory depression from opioids — what do you give?",
+   choices:[
+     {t:"Naloxone", correct:true, why:"A competitive opioid-receptor antagonist — reverses respiratory depression fast. Correct."},
+     {t:"Flumazenil", correct:false, why:"That reverses benzodiazepines, not opioids. Wrong toxidrome."},
+     {t:"Atropine", correct:false, why:"For bradycardia/cholinergic excess — pupils here are pinpoint from opioids, not organophosphates."},
+     {t:"N-acetylcysteine", correct:false, why:"That's the acetaminophen antidote. Wrong poison."}
+   ]},
+ { title:"Trial II — The Anion Gap (Medicine)",
+   story:`A screen shows a captive's chemistry: Na⁺ 140, Cl⁻ 100, HCO₃⁻ 12 mmol/L. The lock demands the anion gap to confirm a metabolic acidosis.`,
+   prompt:"Compute the anion gap = Na⁺ − (Cl⁻ + HCO₃⁻). (a number)",
+   check:numCheck(28,0.5,"140 − (100 + 12) = 28 — a high anion gap metabolic acidosis. Lock opens."),
+   hint:"Na⁺ minus the sum of chloride and bicarbonate." }
+],
+
+/* Trial III — PHYSICS */
+[
+ { title:"Trial III — The Locked Isotope (Physics)",
+   story:`A door is sealed by a decaying tracer: 80 GBq now, opening at 10 GBq. Plaque: "Half-life = 6 hours." A timer wants the wait.`,
+   prompt:"Hours for 80 GBq to decay to 10 GBq? (a number)",
+   check:numCheck(18,0.6,"80→40→20→10 = three halvings × 6 h = 18 h."),
+   hint:"Count halvings from 80 to 10, times the half-life." },
+ { title:"Trial III — The Lens Trap (Physics)",
+   story:`A laser must focus through a converging lens of focal length 10 cm onto a detector. The source sits 15 cm from the lens.`,
+   prompt:"By 1/f = 1/do + 1/di, what image distance di (cm) hits the detector? (a number)",
+   check:numCheck(30,0.6,"1/10 = 1/15 + 1/di → 1/di = 1/10−1/15 = 1/30 → di = 30 cm."),
+   hint:"1/di = 1/f − 1/do = 1/10 − 1/15." },
+ { title:"Trial III — The Charged Gate (Physics)",
+   story:`A capacitive gate stores energy. It holds 2 microfarads charged to 1000 volts; discharge fires the release only if you state the stored energy.`,
+   prompt:"Energy E = ½CV² in joules? (a number)",
+   check:numCheck(1,0.05,"E = ½·(2e-6)·(1000)² = ½·2e-6·1e6 = 1 J."),
+   hint:"½ · 2×10⁻⁶ · (10³)²." }
+],
+
+/* Trial IV — MOLECULAR BIOLOGY */
+[
+ { title:"Trial IV — The Genetic Cipher (Molecular Biology)",
+   story:`A screen shows the template strand triplet of the kill-switch promoter, read 3'→5':  3'-TAC-5'. Give what it encodes and the switch arms.`,
+   prompt:"Template 3'-TAC-5' → which mRNA codon, and which amino acid?",
+   check:a=>({ok:has(a,"aug","methionine","met","start"),
+     why:"Template 3'-TAC-5' → mRNA 5'-AUG-3' = Methionine, the START codon. Armed."}),
+   hint:"Antiparallel complement: T→A, A→U, C→G. Which codon starts translation?" },
+ { title:"Trial IV — The Reading Frame (Molecular Biology)",
+   story:`HELIX shows an mRNA segment: 5'-AUG GCU UAA-3'. The lock asks how many amino acids the ribosome adds before it stops.`,
+   prompt:"How many amino acids are translated from 5'-AUG GCU UAA-3'? (a number)",
+   check:numCheck(2,0.1,"AUG(Met)–GCU(Ala)–UAA(STOP). Two amino acids, then release."),
+   hint:"UAA is a stop codon and adds nothing; count the coding triplets before it." },
+ { title:"Trial IV — The Melting Point (Molecular Biology)",
+   story:`A primer must bind only the pathogen sequence. Two candidate duplexes are offered: one AT-rich, one GC-rich. The lock opens for the more thermally STABLE choice.`,
+   prompt:"Which duplex has the higher melting temperature — 'AT-rich' or 'GC-rich'?",
+   check:a=>({ok:has(a,"gc","g-c","g/c","guanine"),
+     why:"G–C pairs share three hydrogen bonds vs two for A–T, so GC-rich duplexes melt at higher temperature."}),
+   hint:"Which base pair has three hydrogen bonds?" }
+],
+
+/* Trial V — CHEMISTRY / MATH (dilution & stoichiometry) */
+[
+ { title:"Trial V — The Dilution Trap (Chemistry/Math)",
+   story:`Prepare exactly 500 mL of 0.2 M neutralizer from 5 M stock. Overshoot and the reaction runs away.`,
+   prompt:"How many mL of 5 M stock do you draw? (a number)",
+   check:numCheck(20,0.4,"C₁V₁=C₂V₂ → 5·V₁ = 0.2·500 = 100 → V₁ = 20 mL, topped to 500."),
+   hint:"C₁V₁ = C₂V₂; solve for V₁." },
+ { title:"Trial V — The Molar Mass (Chemistry/Math)",
+   story:`You must weigh out 0.5 mol of glucose (C₆H₁₂O₆, molar mass 180 g/mol) to quench the batch.`,
+   prompt:"How many grams of glucose is 0.5 mol? (a number)",
+   check:numCheck(90,1,"mass = moles × molar mass = 0.5 × 180 = 90 g."),
+   hint:"grams = moles × molar mass." },
+ { title:"Trial V — The Serial Dilution (Chemistry/Math)",
+   story:`A 1:10 serial dilution is repeated three times from a 300 mg/mL stock to reach the safe working concentration.`,
+   prompt:"After three tenfold dilutions, what is the concentration in mg/mL? (a number)",
+   check:numCheck(0.3,0.02,"300 / 10³ = 300/1000 = 0.3 mg/mL."),
+   hint:"Divide by 10 three times → divide by 1000." }
+],
+
+/* Trial VI — PHARMACOLOGY */
+[
+ { title:"Trial VI — The Dose Calculus (Pharmacology)",
+   story:`Antidote infusion ordered at 4 mcg/kg/min for an 80 kg patient. Bag concentration 3200 mcg/mL. Pump takes mL/hour.`,
+   prompt:"What rate in mL/hour do you set? (a number)",
+   check:numCheck(6,0.3,"4×80 = 320 mcg/min = 19 200 mcg/hr ÷ 3200 = 6 mL/hr."),
+   hint:"Dose×weight → per min → per hour → ÷ concentration." },
+ { title:"Trial VI — The Drip Rate (Pharmacology)",
+   story:`1000 mL of antidote must run over 4 hours through a gravity set delivering 60 drops/mL.`,
+   prompt:"What drip rate in drops per MINUTE? (a number)",
+   check:numCheck(250,4,"1000 mL/4 h = 250 mL/h = 4.17 mL/min × 60 gtt = 250 gtt/min."),
+   hint:"mL per minute × drop factor (60)." },
+ { title:"Trial VI — The Half-Life Clearance (Pharmacology)",
+   story:`A toxin plasma level is 160 mcg/L; the safe threshold is 10 mcg/L. The drug's half-life is 2 hours.`,
+   prompt:"Hours of clearance to fall from 160 to 10 mcg/L? (a number)",
+   check:numCheck(8,0.3,"160→80→40→20→10 = four half-lives × 2 h = 8 h."),
+   hint:"Count halvings from 160 to 10, × half-life." }
+],
+
+/* Trial VII — COMP BIO / MATH (growth) */
+[
+ { title:"Trial VII — The Spreading Contagion (Comp Bio/Math)",
+   story:`A vector divides every 20 minutes. Containment fails at 4096× the seed. Their console demands the exact breach time — a bluff to make you flee early.`,
+   prompt:"With 20-min doubling, hours to reach 4096×? (a number)",
+   check:numCheck(4,0.25,"4096 = 2¹² → 12 doublings × 20 min = 240 min = 4 h."),
+   hint:"4096 is a power of two; how many doublings × 20 min?" },
+ { title:"Trial VII — The PCR Amplifier (Comp Bio/Math)",
+   story:`A sabotaged thermocycler doubles target DNA each cycle. The alarm trips when one copy becomes over one million copies.`,
+   prompt:"How many cycles to exceed 1,000,000 copies from 1? (a number)",
+   check:numCheck(20,0.5,"2²⁰ = 1,048,576 > 10⁶, while 2¹⁹ ≈ 524k. So 20 cycles."),
+   hint:"2^10 ≈ 1000, so 2^20 ≈ a million." },
+ { title:"Trial VII — The Decay Model (Comp Bio/Math)",
+   story:`An antitoxin degrades exponentially, losing half its potency every cycle. It starts at 100% and must stay above 10% to work.`,
+   prompt:"What is the LAST whole cycle at which potency is still above 10%? (a number)",
+   check:numCheck(3,0.1,"100→50→25→12.5→6.25. Cycle 3 = 12.5% (still >10%); cycle 4 drops below. Answer 3."),
+   hint:"Halve from 100 and find the last value above 10." }
+],
+
+/* Trial VIII — NEUROSCIENCE / SYNTHESIS (fixed finale, still varied) */
+[
+ { title:"Trial VIII — The Final Switch (Neuroscience)",
+   story:`The master killswitch is a light-gated channel you engineered years ago, before HELIX stole it. To fire the cascade you must ACTIVATE — depolarize — the engineered cells with ~470 nm blue light. Three emitters hang overhead.`,
+   prompt:"Which optogenetic tool DEPOLARIZES (activates) cells under ~470 nm blue light?",
+   choices:[
+     {t:"Channelrhodopsin-2 (ChR2)", correct:true, why:"ChR2 is a blue-light cation channel — it depolarizes/activates. The cascade fires. Release aborted."},
+     {t:"Halorhodopsin (NpHR)", correct:false, why:"A yellow-light chloride pump — hyperpolarizes/silences. Wrong direction."},
+     {t:"Archaerhodopsin (Arch)", correct:false, why:"A green-light proton pump that silences cells. You need activation."}
+   ]},
+ { title:"Trial VIII — The Resting Membrane (Neuroscience)",
+   story:`The final override reads out the neuron's resting potential and asks which ion's equilibrium it sits nearest — the key to which channel dominates at rest.`,
+   prompt:"At rest (~ −70 mV), the membrane potential lies nearest which ion's equilibrium — 'potassium' or 'sodium'?",
+   check:a=>({ok:has(a,"potassium","k+","k "),
+     why:"At rest the membrane is most permeable to K⁺, so Vm sits near E_K (~−90 mV), far from E_Na (~+60 mV). Override released."}),
+   hint:"Which ion is the membrane most permeable to at rest?" },
+ { title:"Trial VIII — The Action Potential (Neuroscience)",
+   story:`To trigger the cascade one clean action potential must fire. The console asks which ion rushes IN to drive the rapid depolarizing upstroke.`,
+   prompt:"Which ion influx causes the depolarizing upstroke of an action potential?",
+   check:a=>({ok:has(a,"sodium","na+","na "),
+     why:"Voltage-gated Na⁺ channels open and Na⁺ rushes in, driving the upstroke. The cascade fires — release aborted."}),
+   hint:"Voltage-gated channels for which ion open first at threshold?" }
+]
 ];
 
-/* ---- rendering ---- */
+/* ---------- game state & flow ---------- */
+const MISSION_SECONDS = 8*60; // 8:00 on the clock
+const state = { i:0, score:0, hp:100, hintsUsed:0, seconds:MISSION_SECONDS, scenes:[], timer:null };
 const $ = id => document.getElementById(id);
+
+function buildRun(){
+  state.scenes = [intro, ...pools.map(pick)];
+}
+
+function startTimer(){
+  clearInterval(state.timer);
+  state.timer = setInterval(()=>{
+    state.seconds--;
+    paintClock();
+    if(state.seconds<=0){ clearInterval(state.timer); timeUp(); }
+  },1000);
+}
+function paintClock(){
+  const m=Math.floor(Math.max(0,state.seconds)/60), s=Math.max(0,state.seconds)%60;
+  $("clock").textContent = m+":"+String(s).padStart(2,"0");
+  $("timeChip").classList.toggle("warn", state.seconds<=60);
+}
+
 function render(){
-  const s = scenes[state.i];
-  $("hud-scene").textContent = state.i + "/" + (scenes.length-1);
+  const s = state.scenes[state.i];
+  $("hud-scene").textContent = state.i + "/" + pools.length;
   $("hud-score").textContent = state.score;
   $("hp").style.width = Math.max(0,state.hp) + "%";
   $("title").textContent = s.title;
@@ -192,70 +315,79 @@ function render(){
   $("prompt").style.display = "block";
   $("prompt").textContent = s.prompt;
   $("fb").className = "feedback";
-  const opts = $("opts"); opts.innerHTML="";
-  const row = $("inputRow"); const hint=$("hint");
-  hint.style.display = s.hint ? "block":"none";
-  if(s.hint){ hint.textContent = "Need a nudge? (costs a little Integrity)";
-    hint.onclick=()=>{ if(hint.dataset.done)return; hint.dataset.done=1;
-      hint.textContent="Hint: "+s.hint; state.hp=Math.max(0,state.hp-4); state.hintsUsed++; $("hp").style.width=state.hp+"%"; }; }
+  const opts=$("opts"); opts.innerHTML="";
+  const row=$("inputRow"); const hint=$("hint");
   hint.dataset.done="";
+  hint.style.display = s.hint ? "block":"none";
+  if(s.hint){ hint.textContent="Need a nudge? (costs Integrity + time)";
+    hint.onclick=()=>{ if(hint.dataset.done)return; hint.dataset.done=1;
+      hint.textContent="Hint: "+s.hint;
+      state.hp=Math.max(0,state.hp-4); state.seconds=Math.max(1,state.seconds-15); state.hintsUsed++;
+      $("hp").style.width=state.hp+"%"; paintClock(); }; }
   if(s.choices){
     row.style.display="none";
-    s.choices.forEach(c=>{ const b=document.createElement("button"); b.className="opt"; b.textContent=c.t;
-      b.onclick=()=>resolve(c.correct,c.why); opts.appendChild(b); });
+    s.choices.forEach(c=>{ const b=document.createElement("button"); b.className="opt";
+      b.textContent=c.t; b.onclick=()=>resolve(c.correct,c.why); opts.appendChild(b); });
   } else {
-    row.style.display="flex";
-    $("answer").value=""; $("answer").focus();
-    $("submit").onclick = submit;
-    $("answer").onkeydown = e=>{ if(e.key==="Enter") submit(); };
+    row.style.display="flex"; $("answer").value=""; $("answer").focus();
+    $("submit").disabled=false; $("submit").onclick=submit;
+    $("answer").onkeydown=e=>{ if(e.key==="Enter") submit(); };
   }
 }
-function submit(){
-  const s=scenes[state.i]; const r=s.check($("answer").value);
-  resolve(r.ok, r.why);
-}
+function submit(){ const s=state.scenes[state.i]; const r=s.check($("answer").value); resolve(r.ok,r.why); }
+
 function resolve(ok, why){
   const fb=$("fb");
-  if(ok){ state.score += 10; fb.className="feedback show good"; fb.innerHTML="✔ "+why; }
-  else  { state.hp=Math.max(0,state.hp-18); fb.className="feedback show bad"; fb.innerHTML="✘ "+why; }
+  if(ok){ state.score+=10; fb.className="feedback show good"; fb.innerHTML="✔ "+why; }
+  else  { state.hp=Math.max(0,state.hp-18); state.seconds=Math.max(1,state.seconds-30);
+          fb.className="feedback show bad"; fb.innerHTML="✘ "+why; paintClock(); }
   $("hp").style.width=state.hp+"%"; $("hud-score").textContent=state.score;
-  // disable current controls, then advance
   document.querySelectorAll(".opt").forEach(b=>b.disabled=true);
   $("submit").disabled=true;
   setTimeout(()=>{
-    if(state.hp<=0){ return gameOver(); }
-    if(ok){ state.i++; }
-    // wrong answers on input puzzles let you retry; wrong choices advance with penalty
-    if(state.i>=scenes.length){ return win(); }
-    $("submit").disabled=false;
+    if(state.hp<=0) return end(false,"integrity");
+    if(ok) state.i++;
+    if(state.i>=state.scenes.length) return end(true);
     render();
   }, ok?1500:2600);
 }
-function gameOver(){
-  document.querySelector(".panel").innerHTML =
-    `<div class="scene-title">Integrity depleted</div>
-     <div class="end">☠ The automatic release triggered.<br><br>
-     But every good scientist reruns the experiment.</div>
-     <div class="opts"><button class="opt" onclick="restart()">↻ Reset the timeline</button></div>`;
-}
-function win(){
-  const grade = state.hintsUsed===0 && state.hp>82 ? "FLAWLESS — a true polymath run."
-    : state.hp>50 ? "The world is safe. Steady hands, sharp mind."
-    : "You made it — bruised, but the release is aborted.";
-  document.querySelector(".panel").innerHTML =
-    `<div class="scene-title">Case closed — 09:57, Geneva</div>
-     <div class="end">✦ THE HELIX PROTOCOL — DISARMED ✦</div>
-     <div class="story">Blue light floods the chamber. ChR2 fires, the engineered cells depolarize, the killswitch cascade sweeps the vector inert. The prion batch denatures. Somewhere, thousands of people wake to an ordinary morning and never know your name.
+function timeUp(){ if(state.hp>0) end(false,"time"); }
 
-Final Insight: <b>${state.score}</b> · Integrity remaining: <b>${Math.round(state.hp)}%</b> · Hints used: <b>${state.hintsUsed}</b>
+function end(won, cause){
+  clearInterval(state.timer);
+  const p=$("panel");
+  if(won){
+    const grade = state.hintsUsed===0 && state.hp>82 && state.seconds>180
+      ? "FLAWLESS — a true polymath run." :
+      state.hp>50 ? "The world is safe. Steady hands, sharp mind."
+      : "You made it — bruised, but the release is aborted.";
+    p.innerHTML=`<div class="scene-title">Case closed — Geneva</div>
+      <div class="end">✦ THE HELIX PROTOCOL — DISARMED ✦</div>
+      <div class="story">The killswitch cascade sweeps the vector inert; the prion batch denatures. Somewhere, thousands wake to an ordinary morning and never know your name.
+
+Insight: <b>${state.score}</b> · Integrity: <b>${Math.round(state.hp)}%</b> · Time left: <b>${Math.floor(state.seconds/60)}:${String(state.seconds%60).padStart(2,"0")}</b> · Hints: <b>${state.hintsUsed}</b>
 ${grade}</div>
-     <div class="opts"><button class="opt" onclick="restart()">↻ Play again</button>
-     <button class="opt" onclick="location.href='index.html'">← Return to site</button></div>`;
+      <div class="opts">
+        <button class="opt" onclick="restart()">↻ New mission (fresh puzzles)</button>
+        <button class="opt" onclick="location.href='index.html'">← Return to site</button></div>`;
+  } else {
+    const msg = cause==="time"
+      ? "⏱ The mission clock hit zero. The release triggered."
+      : "☠ Integrity depleted. The release triggered.";
+    p.innerHTML=`<div class="scene-title">Mission failed</div>
+      <div class="end">${msg}<br><br>Every good scientist reruns the experiment.</div>
+      <div class="opts"><button class="opt" onclick="restart()">↻ Reset the timeline (fresh puzzles)</button></div>`;
+  }
 }
-function restart(){ state.i=0; state.score=0; state.hp=100; state.hintsUsed=0;
-  document.querySelector(".panel").innerHTML = document._panel; render(); }
-document._panel = document.querySelector(".panel").innerHTML;
-render();
+
+function restart(){
+  state.i=0; state.score=0; state.hp=100; state.hintsUsed=0; state.seconds=MISSION_SECONDS;
+  $("panel").innerHTML=PANEL_HTML;
+  buildRun(); paintClock(); startTimer(); render();
+}
+
+const PANEL_HTML = $("panel").innerHTML;
+buildRun(); paintClock(); startTimer(); render();
 </script>
 </body>
 </html>
